@@ -9,12 +9,11 @@ Getopt::Long::Configure qw(gnu_getopt);
 use List::Util qw(shuffle);
 
 use Email::Valid;
-use Email::Sender::Simple qw(sendmail);
-use Email::MIME;
 
 use utf8::all;
-
 use Encode qw(encode);
+
+use MIME::Lite;
 
 my ($verb, $file);
 
@@ -83,20 +82,16 @@ foreach my $from (keys %draw) {
         print "Emailed $contacts{$from} about their present for $to\n";
     }
 
-    my $message = Email::MIME->create(
-      header_str => [
-        From    => 'santa@northpole.com',
-        To      => $contacts{$from},
-        Subject => 'Secret Santa',
-      ],
-      attributes => {
-            encoding => '8bit',
-            charset  => 'UTF-8',
-      },
-      body_str => encode('UTF-8', $body),
+    my $msg = MIME::Lite->new(
+        From     => 'santa@northpole.com',
+        To       => $contacts{$from},
+        Subject  => 'Secret Santa',
+        Data     => encode('UTF-8', $body),
+        Type     => 'text/plain; charset=UTF-8',
+        Encoding => '8bit',
     );
 
-    sendmail($message);
+    $msg->send;
 }
 
 exit;
