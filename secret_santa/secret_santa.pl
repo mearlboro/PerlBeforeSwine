@@ -15,25 +15,25 @@ use Encode qw(encode);
 
 use MIME::Lite;
 
-my ($verb, $file);
+my ($verb, $file, $couples);
 
 GetOptions(
-    'v|verbose' => \$verb,
-    'f|file=s'  => \$file,
-) or die "Usage: $0 -f|--file FILENAME [-v|--verbose]";
+    'v|verbose'   => \$verb,
+    'p|people=s'  => \$file,
+    'c|couples=s' => \$couples,
+) or die "Usage: $0 -p|--people FILENAME [-c|--couples FILENAME -v|--verbose]";
 
-defined $file or die "Usage: $0 -f|--file FILENAME";
+defined $file or die "Usage: $0 -p|--people FILENAME [-c|--couples FILENAME -v|--verbose]";
 
 
 open INFILE, "<", $file;
 
-my @bag;
-my %contacts;
+my (@bag, %contacts, %dont_match);
 
 while (<INFILE>) {
     chomp;
 
-    /^ \w+ \s [\w\.]+@[\w\.]+ $/ix or die "Malformed file\n";
+    /^ \w+ \s [\w\.]+@[\w\.]+ $/ix or die "Malformed file $file, needs to be \nname name\@host.com\n";
 
     my ($name, $email) = split / /;
     Email::Valid->address($email) or die "Malformed email address $email\n";
@@ -42,6 +42,32 @@ while (<INFILE>) {
     push @bag, $name;
 }
 
+close INFILE;
+
+if (defined $couples) {
+    open INFILE, "<", $couples;
+
+    while (<INFILE>) {
+        chomp;
+
+        /^ \w+ \s \w+ $/ix or die "Malformed file $couples, needs to be \nname1 name2\n";
+
+	my ($name1, $name2) = split / /;
+
+        $name1 ~~ @bag and $name2 ~~ @bag or die "Malformed file $couples, all names need to be in $file\n";
+
+	$dont_match{$name1} = $name2;
+	$dont_match{$name2} = $name1; 
+    }
+
+}
+
+if ($verb) {
+    foreach my $name (keys %dont_match) {
+        my $name1 = $dont_match{$name};
+        print "$name must not buy for $name1\n";
+    }
+}
 
 my %draw;
 
@@ -50,15 +76,19 @@ TRY: while () {
         @bag = shuffle @bag;
 
         my $pick = shift @bag;
-        if ($pick eq $name) {
-            # last person picked themselves, try again
+        
+	# a person can't pick themselves or their partner
+	while ( ($pick eq $name) or 
+		(defined $dont_match{$name} and $pick eq $dont_match{$name}) ) {
+            # last person, try again
             if (@bag == 0) {
                 @bag = @copy;
                 next TRY;
             }
             push @bag, $pick;
-            $pick = shift @bag;
-        }
+            my $pick = shift @bag;
+	}
+
         $draw{$name} = $pick;
     }
     last TRY;
@@ -67,10 +97,11 @@ TRY: while () {
 if ($verb) {
     foreach my $name (keys %draw) {
         my $pick = $draw{$name};
-        print "$name\t$pick\n";
+        print "$name will buy a present for $pick\n";
     }
 }
 
+print "Done pairing, sending emails....";
 
 foreach my $from (keys %draw) {
 
@@ -81,7 +112,7 @@ foreach my $from (keys %draw) {
     if ($verb) {
         print "Emailed $contacts{$from} about their present for $to\n";
     }
-
+    
     my $msg = MIME::Lite->new(
         From     => 'santa@northpole.com',
         To       => $contacts{$from},
@@ -122,7 +153,7 @@ secret_santa
 
 =head1 SYNOPSIS
 
-./secret_santa -f|--file [-v|--verbose]
+./secret_santa -p|--people [-c|--couples -v|--verbose]
 
 =head1 DESCRIPTION
 
@@ -136,9 +167,13 @@ Generates Secret Santa pairs and sends emails to people in the list
 
 Print out the pairs to the console
 
-=item -f, --file
+=item -p, --people
 
-The list of people to participate, name and email separated by a space, one per line
+A file containing the list of people to participate, name and email separated by a space, one per line
+
+=item -c, --couples
+
+A file containing the list of couples that should not be matched, two names separated by a space, one per line
 
 =back
 
